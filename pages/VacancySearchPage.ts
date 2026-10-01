@@ -5,7 +5,14 @@ const SEARCH_API = '/v1/search/search_job_description/';
 
 export interface SearchResult {
   totalCount: number;
+  /** First page of results in API order, enough to compare rankings. */
+  results: { id: number; score: number }[];
 }
+
+type SearchResponseBody = {
+  pagination: { total_count: number };
+  results: { id: number; score: number }[];
+};
 
 /**
  * All selectors live here. If the app's markup differs from these
@@ -24,6 +31,7 @@ export class VacancySearchPage {
   readonly matchCount: Locator;
   readonly vacancyCards: Locator;
   readonly emptyState: Locator;
+  readonly errorMessage: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -44,6 +52,13 @@ export class VacancySearchPage {
     this.vacancyCards = page.locator('.vacancyCard');
 
     this.emptyState = page.getByText('No vacancies match your criteria', { exact: true });
+
+    // The app has no error state today (VS-13 is a known bug), so this is the
+    // generic wording we'd accept. Not getByRole('alert'): Next.js's route
+    // announcer is an always-present role="alert" holding the page title.
+    this.errorMessage = page.getByText(
+      /something went wrong|please try again|(could not|couldn't|failed to) load|unavailable/i,
+    );
   }
 
   /** Title, match % and location of a single vacancy card. */
@@ -57,22 +72,44 @@ export class VacancySearchPage {
     };
   }
 
+  /** Opens vacancy search directly, for specs that don't cover navigation. */
+  async open() {
+    await this.page.goto('/search/?type=vacancies');
+    await expect(this.jobTitleInput).toBeVisible();
+  }
+
   /**
-   * Submits the search and waits for the search API response for this title.
-   * The page also calls the endpoint on load (without a title), so the
+   * Fills the title, submits, and waits for the search API response for this
+   * title. The page also calls the endpoint on load (without a title), so the
    * predicate matches on the request body, not only the URL.
    */
-  async searchByJobTitle(title: string): Promise<SearchResult> {
+  async submitSearch(title: string): Promise<Response> {
     await expect(this.jobTitleInput).toBeVisible();
     await this.jobTitleInput.fill(title);
 
     const responsePromise = this.page.waitForResponse((res) => this.isSearchFor(res, title));
     await this.searchButton.click();
-    const response = await responsePromise;
+    return responsePromise;
+  }
 
+  /** submitSearch for the happy path: the API must succeed. */
+  async searchByJobTitle(title: string): Promise<SearchResult> {
+    const response = await this.submitSearch(title);
     expect(response.ok(), `search API returned HTTP ${response.status()}`).toBe(true);
-    const body = (await response.json()) as { pagination: { total_count: number } };
-    return { totalCount: body.pagination.total_count };
+    const body = (await response.json()) as SearchResponseBody;
+    return {
+      totalCount: body.pagination.total_count,
+      results: body.results.map(({ id, score }) => ({ id, score })),
+    };
+  }
+
+  /** Makes every search request fail with the given HTTP status. */
+  async mockSearchFailure(status = 500) {
+    await this.page.route(`**${SEARCH_API}**`, (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status, json: { detail: 'Injected failure (test)' } })
+        : route.fallback(),
+    );
   }
 
   private isSearchFor(res: Response, title: string): boolean {
@@ -111,6 +148,26 @@ export class VacancySearchPage {
       .toBe(result.totalCount);
   }
 
+  /** Match % of every card on the current page, top to bottom. */
+  async readMatchPercents(): Promise<number[]> {
+    const percents = this.vacancyCards.getByText(/^\d{1,3}%$/);
+    // Pre-search cards have no %, so this waits for the post-search render,
+    // then checks every card has one.
+    await expect(percents.first()).toBeVisible();
+    await expect(percents).toHaveCount(await this.vacancyCards.count());
+    return (await percents.allTextContents()).map((t) => Number(t.replace('%', '')));
+  }
+
+  async expectSortedByMatchPercent(): Promise<number[]> {
+    const percents = await this.readMatchPercents();
+    expect(percents.length, 'need at least 2 cards to check ordering').toBeGreaterThan(1);
+    expect(percents, 'cards should be ordered by match %, highest first').toEqual(
+      [...percents].sort((a, b) => b - a),
+    );
+    return percents;
+  }
+
+  /** Returns the checked fields so specs can record them in the report. */
   async expectVacancyCardWithMetadata() {
     const first = this.vacancyCards.first();
     await expect(first).toBeVisible();
@@ -128,6 +185,12 @@ export class VacancySearchPage {
 
     await expect(location).toBeVisible();
     await expect(location).toHaveText(/\S/);
+
+    return {
+      title: (await title.innerText()).trim(),
+      location: (await location.innerText()).trim(),
+      matchPercent: (await matchPercent.innerText()).trim(),
+    };
   }
 
   async expectNoResults(result: SearchResult) {
@@ -138,5 +201,22 @@ export class VacancySearchPage {
     await expect(this.emptyState).toBeVisible();
     await expect(this.vacancyCards).toHaveCount(0);
     await expect(this.matchCount).toBeHidden();
+  }
+
+  /**
+   * After a failed search the page must not present anything as if it were a
+   * real answer: no stale cards or count, and no "no vacancies" message (an
+   * outage is not an empty result). The typed title stays so the user can retry.
+   */
+  async expectNoMisleadingResults(title: string) {
+    await expect(this.vacancyCards).toHaveCount(0);
+    await expect(this.matchCount).toBeHidden();
+    await expect(this.emptyState).toBeHidden();
+    await expect(this.jobTitleInput).toHaveValue(title);
+    await expect(this.searchButton).toBeEnabled();
+  }
+
+  async expectErrorMessage() {
+    await expect(this.errorMessage).toBeVisible();
   }
 }

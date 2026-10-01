@@ -13,4 +13,27 @@ export const searchData = {
    * If the env gains a matching vacancy, VS-02 fails with an explicit message.
    */
   noResultsJobTitle: 'Underwater basket weaver',
+
+  /** Variants of jobTitle that must return the same results (VS-12). */
+  equivalentTitles: ['software engineer', 'SOFTWARE ENGINEER', '  Software Engineer  '],
+
+  /**
+   * Known bug: three spaces between the words return 511 matches with
+   * different scores instead of the 510 for "Software Engineer". Two spaces
+   * are fine. Tracked by a test.fail() test in VS-12.
+   */
+  knownBugTitle: 'Software   Engineer',
 } as const;
+
+/**
+ * Accessibility issues already present on the search page (axe, WCAG 2.0/2.1
+ * A+AA, critical/serious). VS-14 fails on anything NOT in this list, so the
+ * page can't get worse; remove an entry once the app team fixes it.
+ */
+export const knownA11yViolations: Record<string, string> = {
+  'button-name': 'Search-icon submit button has no accessible name',
+  'image-alt': 'Decorative icons in the search form have no alt text',
+  'select-name': 'Distance <select> has no label',
+  'aria-progressbar-name': 'Match-% rings on cards (role=progressbar) have no name',
+  'link-name': 'Logo link has no accessible name',
+};

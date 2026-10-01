@@ -2,12 +2,14 @@ import { test as base, expect } from '@playwright/test';
 import { HomePage } from '../pages/HomePage';
 import { VacancySearchPage } from '../pages/VacancySearchPage';
 
-type Pages = {
+type Fixtures = {
   homePage: HomePage;
   vacancySearchPage: VacancySearchPage;
+  /** Attaches a full-page screenshot of the final state, pass or fail. */
+  finalScreenshot: void;
 };
 
-export const test = base.extend<Pages>({
+export const test = base.extend<Fixtures>({
   page: async ({ page }, use) => {
     // The app loads Cookiebot. Its dialog doesn't show on the review domain
     // today, but if it ever does it would cover the search form. The handler
@@ -24,6 +26,21 @@ export const test = base.extend<Pages>({
   vacancySearchPage: async ({ page }, use) => {
     await use(new VacancySearchPage(page));
   },
+  finalScreenshot: [
+    async ({ page }, use, testInfo) => {
+      await use();
+      await testInfo.attach('final state', {
+        body: await page.screenshot({ fullPage: true }),
+        contentType: 'image/png',
+      });
+    },
+    { auto: true },
+  ],
 });
+
+/** Adds a line to the test's header in the HTML report (shown for passed tests too). */
+export function note(type: string, description: string) {
+  test.info().annotations.push({ type, description });
+}
 
 export { expect };

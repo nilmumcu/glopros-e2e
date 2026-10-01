@@ -9,6 +9,7 @@
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
+    "test:evidence": "playwright test --trace on",
     "codegen": "playwright codegen ${BASE_URL:-https://review-chore-qa-i-lgtytk.dev.glopros.com}",
     "report": "playwright show-report",
     "typecheck": "tsc --noEmit",
@@ -18,6 +19,7 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.48.0",
     "@types/node": "^20.0.0",

@@ -23,6 +23,8 @@ npx playwright install chromium
 | `npm test`                                    | All tests, headless                                |
 | `npm run test:headed`                         | Watch the browser                                  |
 | `npm run test:ui`                             | Playwright UI mode                                 |
+| `npm run test:evidence`                       | Record a trace for every test, passed ones too     |
+| `npx playwright test --grep @known-bug`       | Only the tests that track known app bugs           |
 | `npx playwright test --grep @smoke`           | Smoke subset (or `--grep @VS-02` for one scenario) |
 | `npx playwright test --repeat-each=20`        | Flakiness check                                    |
 | `CI=true npx playwright test`                 | Run with CI settings (retries, 1 worker)           |
@@ -38,7 +40,8 @@ features/   Gherkin scenarios; @VS-xx IDs link each one to its test
 tests/      Specs; each test.step mirrors a Gherkin step
 pages/      Page objects; all selectors and assertions live here
 fixtures/   test.extend: provides homePage / vacancySearchPage, cookie-banner handler
-data/       Test data (search terms)
+data/       Test data (search terms) and the accessibility baseline
+support/    Helpers (axe accessibility scan)
 .github/    CI workflow: typecheck, lint, format check, tests, report artifact
 ```
 
@@ -49,22 +52,68 @@ page objects injected:
 test('...', async ({ vacancySearchPage }) => { ... });
 ```
 
+## Viewing results
+
+`npm run report` opens the HTML report. Click **Passed** to filter. For every test,
+passed or failed, the report shows:
+
+- **Steps** named after the Gherkin steps.
+- **Annotations** with what was actually checked, for example
+  `search: "Software Engineer": API total 510`,
+  `first card: 9 · Netherlands · 96%`, and the match % order.
+- **A full-page screenshot of the final state** (fixture `finalScreenshot`).
+- For accessibility tests, the full **axe results** as a JSON attachment.
+
+Traces are only recorded on retry by default, to keep runs fast. Use
+`npm run test:evidence` for a run where every test gets a trace (timeline, DOM
+snapshots, network), or `npm run test:ui` to step through tests live.
+
 ## Coverage and traceability
 
-| ID    | Scenario (`features/vacancy-search.feature`) | Status    | Test (`tests/vacancy-search.spec.ts`)                            |
-| ----- | -------------------------------------------- | --------- | ---------------------------------------------------------------- |
-| VS-01 | Search by main job title (happy path)        | Automated | `user finds vacancies by main job title` `@smoke`                |
-| VS-02 | Search with a title that matches nothing     | Automated | `search with a title that matches nothing shows the empty state` |
-| VS-03 | Search with an empty job title               | Manual    | –                                                                |
-| VS-04 | Special characters and whitespace in title   | Manual    | –                                                                |
-| VS-05 | Very long job title                          | Manual    | –                                                                |
-| VS-06 | Submit with the Enter key                    | Manual    | –                                                                |
-| VS-07 | Change the distance filter                   | Manual    | –                                                                |
-| VS-08 | Deep link to a search URL                    | Manual    | –                                                                |
-| VS-09 | Browser back keeps search state              | Manual    | –                                                                |
-| VS-10 | Mobile viewport                              | Manual    | –                                                                |
+| ID    | Scenario (`features/vacancy-search.feature`) | Status                  | Test                                                                                        |
+| ----- | -------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------- |
+| VS-01 | Search by main job title (happy path)        | Automated               | `vacancy-search.spec.ts` › `user finds vacancies by main job title` `@smoke`                |
+| VS-02 | Search with a title that matches nothing     | Automated               | `vacancy-search.spec.ts` › `search with a title that matches nothing shows the empty state` |
+| VS-11 | Results ordered by match %                   | Automated               | `vacancy-search.spec.ts` › `results are ordered by match %, highest first`                  |
+| VS-12 | Case/whitespace variants give same results   | Automated (+ known bug) | `vacancy-search.spec.ts` › `equivalent job titles return the same results` (4 tests)        |
+| VS-13 | Search API failure (stubbed HTTP 500)        | Automated (+ known bug) | `search-resilience.spec.ts` (2 tests)                                                       |
+| VS-14 | Accessibility (axe, WCAG 2.1 A/AA)           | Automated (+ known bug) | `accessibility.spec.ts` (2 tests)                                                           |
+| VS-03 | Search with an empty job title               | Manual                  | –                                                                                           |
+| VS-04 | Special characters in title                  | Manual                  | –                                                                                           |
+| VS-05 | Very long job title                          | Manual                  | –                                                                                           |
+| VS-06 | Submit with the Enter key                    | Manual                  | –                                                                                           |
+| VS-07 | Change the distance filter                   | Manual                  | –                                                                                           |
+| VS-08 | Deep link to a search URL                    | Manual                  | –                                                                                           |
+| VS-09 | Browser back keeps search state              | Manual                  | –                                                                                           |
+| VS-10 | Mobile viewport                              | Manual                  | –                                                                                           |
 
 Run a single scenario by ID: `npx playwright test --grep @VS-01`.
+
+### Known bugs (tracked as expected failures)
+
+These tests assert the **correct** behaviour and are marked `test.fail()`. They
+show as passed ("expected to fail") while the bug exists. Once the app is fixed
+they turn red, which tells you to remove the `test.fail()` line. The expectation
+itself is never weakened.
+
+| ID    | Bug                                                                                                            |
+| ----- | -------------------------------------------------------------------------------------------------------------- |
+| VS-12 | "Software Engineer" (3 inner spaces) returns 511 matches with lower scores (top 86% vs 96%); 2 spaces are fine |
+| VS-13 | When the search API fails, the results area goes blank with no error message                                   |
+| VS-14 | Search form: icon-only search button has no accessible name, distance `<select>` has no label, icons lack alt  |
+
+The results-page accessibility test uses a **baseline** (`knownA11yViolations` in
+`data/testData.ts`). It fails only on violations that are not in that list, so the
+page can't get worse while the known issues wait for a fix.
+
+### Other observations (not automated)
+
+- The top result for "Software Engineer" is a vacancy titled "9" (96% match). This
+  is a possible relevance problem, or test data ranking above real vacancies.
+- Search is very loose: "zzzqqqxxx123" returns 336 matches, and several unrelated
+  terms return exactly 500 (possibly a cap on the count).
+- One card lists masked email addresses as skills. That's a data-quality issue and
+  possibly personal data shown publicly.
 
 ## Stability approach
 
@@ -108,6 +157,12 @@ Run a single scenario by ID: `npx playwright test --grep @VS-01`.
   on the first card. Some vacancies on the env have no location ("Test 123"), so if
   one ranks first for "Software Engineer", VS-01 fails. Accepting any card would hide
   regressions on the top result.
+- **VS-13 stubs the API.** `page.route` is the only safe way to test failure handling on
+  a shared environment. It tests the UI's reaction, not the backend. The error message
+  wording isn't specified, so the locator accepts common phrasings.
+- **Accessibility uses a baseline, not zero violations.** Requiring zero violations
+  would fail permanently on existing issues and get ignored. The baseline catches new
+  issues today, and the separate known-bug test keeps the existing ones visible.
 - **Chromium desktop only.** One project keeps runs fast on a shared env. Mobile is
   covered as a manual scenario (VS-10).
 - **Gherkin is documentation, not executable.** The steps are mirrored in `test.step`
