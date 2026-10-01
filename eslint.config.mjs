@@ -4,7 +4,7 @@ import playwright from 'eslint-plugin-playwright';
 import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
-  { ignores: ['node_modules/', 'playwright-report/', 'test-results/', 'blob-report/'] },
+  { ignores: ['node_modules/', 'playwright-report/', 'test-results/', 'blob-report/', 'reports/'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
@@ -30,6 +30,13 @@ export default tseslint.config(
       'playwright/expect-expect': ['error', { assertFunctionPatterns: ['^expect[A-Z]'] }],
     },
   },
-  { files: ['eslint.config.mjs'], ...tseslint.configs.disableTypeChecked },
+  {
+    files: ['**/*.mjs'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { process: 'readonly', console: 'readonly' },
+    },
+  },
   prettier,
 );

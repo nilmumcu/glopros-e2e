@@ -42,7 +42,8 @@ pages/      Page objects; all selectors and assertions live here
 fixtures/   test.extend: provides homePage / vacancySearchPage, cookie-banner handler
 data/       Test data (search terms) and the accessibility baseline
 support/    Helpers (axe accessibility scan)
-.github/    CI workflow: typecheck, lint, format check, tests, report artifact
+scripts/    ci-summary.mjs: results table for the GitHub Actions run page
+.github/    CI pipeline (see "CI pipeline")
 ```
 
 Specs import `test`/`expect` from `fixtures/`, not from `@playwright/test`, and get
@@ -67,6 +68,36 @@ passed or failed, the report shows:
 Traces are only recorded on retry by default, to keep runs fast. Use
 `npm run test:evidence` for a run where every test gets a trace (timeline, DOM
 snapshots, network), or `npm run test:ui` to step through tests live.
+
+## CI pipeline
+
+`.github/workflows/e2e.yml` runs on every push to `main`, on pull requests,
+manually (**Run workflow**), and **nightly at 03:00 UTC**.
+
+```
+quality ──► smoke ──► e2e ──► publish-report
+typecheck   @smoke    full     HTML report → GitHub Pages
+lint        only      suite    (main only, also when tests fail)
+format
+```
+
+| Stage            | Why it's separate                                                                       |
+| ---------------- | --------------------------------------------------------------------------------------- |
+| `quality`        | Fails in ~30s without installing a browser                                              |
+| `smoke`          | If the env is down or the happy path broke, stop before spending time on the full suite |
+| `e2e`            | Full suite with CI settings (2 retries, 1 worker); uploads the report and raw results   |
+| `publish-report` | Puts the HTML report at a link, so nobody has to download and unzip an artifact         |
+
+- **Run page summary:** each test job writes a results table to the run page with
+  the pass rate, a split into passed / known bugs / flaky / failed, and each test's
+  notes (made by `scripts/ci-summary.mjs` from the JSON reporter).
+- **Live report:** https://nilmumcu.github.io/glopros-e2e/ (latest `main` or nightly run).
+- **Nightly run:** the review env is shared and its data changes. A nightly run catches
+  breakage, such as the VS-02 zero-result term gaining matches, on days nobody pushes.
+- **Concurrency:** a newer push cancels the older run on the same branch.
+
+One-time setup for the live report: **Settings → Pages → Build and deployment →
+Source: GitHub Actions**.
 
 ## Coverage and traceability
 
@@ -138,8 +169,9 @@ page can't get worse while the known issues wait for a fix.
   so form locators are scoped to `data-testid="desktop-search-layout"`. There are
   no `.first()` calls to hide ambiguity.
 - **No hard-coded result counts or ranking**, since data on a shared review env changes.
-- **CI:** 2 retries, 1 worker, trace on first retry, screenshot/video on failure,
-  report uploaded as an artifact.
+- **CI:** 2 retries, 1 worker, trace on first retry, screenshot/video on failure.
+  Retries never hide problems: a test that passes only on retry is reported as
+  **flaky** in the run summary and the report.
 
 ## Trade-offs
 
@@ -171,14 +203,15 @@ page can't get worse while the known issues wait for a fix.
 
 ## Troubleshooting
 
-| Symptom                                      | Fix                                                                                    |
-| -------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `Playwright requires Node.js 20 or higher`   | `nvm install && nvm use` (reads `.nvmrc`)                                              |
-| `Executable doesn't exist ... chromium`      | `npx playwright install chromium`                                                      |
-| `bad CPU type in executable` (Apple Silicon) | Your Node or Homebrew is x86_64-only. Install an arm64 Node 20 (nvm or nodejs.org)     |
-| VS-02: `search API returned matches`         | Env data changed; pick a new zero-result title in `data/testData.ts`                   |
-| Locator timeouts after an app release        | `npm run codegen`, inspect the markup, update `pages/` (the only place with selectors) |
-| Flaky in CI only                             | Download the `playwright-report` artifact and open the trace from the retried run      |
+| Symptom                                         | Fix                                                                                    |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `Playwright requires Node.js 20 or higher`      | `nvm install && nvm use` (reads `.nvmrc`)                                              |
+| `Executable doesn't exist ... chromium`         | `npx playwright install chromium`                                                      |
+| `bad CPU type in executable` (Apple Silicon)    | Your Node or Homebrew is x86_64-only. Install an arm64 Node 20 (nvm or nodejs.org)     |
+| VS-02: `search API returned matches`            | Env data changed; pick a new zero-result title in `data/testData.ts`                   |
+| Locator timeouts after an app release           | `npm run codegen`, inspect the markup, update `pages/` (the only place with selectors) |
+| Flaky in CI only                                | Open the live report (or the `playwright-report` artifact) and the retried run's trace |
+| `publish-report` fails: "Get Pages site failed" | Enable Pages once: Settings → Pages → Source: GitHub Actions                           |
 
 ## AI usage note
 

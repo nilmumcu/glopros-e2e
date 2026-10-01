@@ -11,7 +11,12 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 15_000 }, // review envs can be slow; assertions auto-wait
   reporter: process.env.CI
-    ? [['github'], ['html', { open: 'never' }]]
+    ? [
+        ['github'],
+        ['html', { open: 'never' }],
+        // Read by scripts/ci-summary.mjs for the Actions job summary.
+        ['json', { outputFile: 'reports/results.json' }],
+      ]
     : [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL,
