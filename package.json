@@ -1,0 +1,31 @@
+{
+  "name": "glopros-vacancy-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "codegen": "playwright codegen ${BASE_URL:-https://review-chore-qa-i-lgtytk.dev.glopros.com}",
+    "report": "playwright show-report",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.48.0",
+    "@types/node": "^20.0.0",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-playwright": "^2.12.0",
+    "prettier": "^3.9.9",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.71.0"
+  }
+}
