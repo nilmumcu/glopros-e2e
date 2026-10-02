@@ -92,4 +92,4 @@ I built this with Claude Code (an AI coding agent) doing most of the hands-on wo
 - **Claude:** inspected the live app's DOM and network calls, wrote the page objects, tests, CI workflow and docs, and ran the repeat runs.
 - **Me:** set the scope and rules (follow the brief, no hard-coded counts, never loosen an assertion to get green, call unspecified behaviour "observed" or "suspected"), asked for the stability checks (20× repeats, CI-mode runs), reviewed the results and diffs, and decided what to keep and what to cut.
 - **What I changed after review:** the first version grew past the brief, so I had it split into a small required core and a non-blocking extended tier, dropped a nightly job and a custom summary script, and shortened this README.
-- **Why:** AI is fast at investigation and boilerplate. Deciding the scope, what counts as an issue, and which trade-offs to accept stayed with me.
+- **Why:** AI is fast at investigation. Deciding the scope, what counts as an issue, and which trade-offs to accept stayed with me.
