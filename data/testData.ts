@@ -18,17 +18,17 @@ export const searchData = {
   equivalentTitles: ['software engineer', 'SOFTWARE ENGINEER', '  Software Engineer  '],
 
   /**
-   * Known bug: three spaces between the words return 511 matches with
-   * different scores instead of the 510 for "Software Engineer". Two spaces
-   * are fine. Tracked by a test.fail() test in VS-12.
+   * Suspected issue: three spaces between the words return 511 matches with
+   * lower scores, while two spaces match "Software Engineer". Expected
+   * behaviour isn't specified; VS-12 tracks it as an expected failure.
    */
-  knownBugTitle: 'Software   Engineer',
+  innerSpacesTitle: 'Software   Engineer',
 } as const;
 
 /**
- * Accessibility issues already present on the search page (axe, WCAG 2.0/2.1
- * A+AA, critical/serious). VS-14 fails on anything NOT in this list, so the
- * page can't get worse; remove an entry once the app team fixes it.
+ * WCAG 2.1 A/AA failures (axe, critical/serious) already present on the
+ * search page. VS-14 fails on anything NOT in this list, so the page can't get
+ * worse; remove an entry once the app team fixes it.
  */
 export const knownA11yViolations: Record<string, string> = {
   'button-name': 'Search-icon submit button has no accessible name',

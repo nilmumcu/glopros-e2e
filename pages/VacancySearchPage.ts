@@ -3,30 +3,45 @@ import { Page, Locator, Response, expect } from '@playwright/test';
 /** Search endpoint the vacancy form posts to: { main_job_title: string[] }. */
 const SEARCH_API = '/v1/search/search_job_description/';
 
+/** One result as the API returns it; card n on the page shows result n. */
+export interface SearchHit {
+  id: number;
+  title: string;
+  score: number;
+  country: string | null;
+}
+
 export interface SearchResult {
   totalCount: number;
-  /** First page of results in API order, enough to compare rankings. */
-  results: { id: number; score: number }[];
+  /** First page of results in API order. */
+  results: SearchHit[];
 }
 
 type SearchResponseBody = {
   pagination: { total_count: number };
-  results: { id: number; score: number }[];
+  results: {
+    id: number;
+    score: number;
+    job_title: string;
+    location?: { main?: { country?: string | null } };
+  }[];
 };
 
 /**
- * All selectors live here. If the app's markup differs from these
- * assumptions, this is the only file to touch (see README "Tuning selectors").
+ * All selectors live here.
  *
  * Verified against the live review env. The app renders a hidden mobile copy of
  * the search form, so form locators are scoped to the desktop layout. Card
- * internals have no roles/test ids and only hashed emotion classes (css-xxxx),
- * so card fields use the few stable hooks available: .vacancyCard,
- * svg.locationIcon and the MUI progressbar ring next to the title.
+ * internals have no roles or test ids, so card fields are matched against the
+ * search API response instead of the page structure.
  */
 export class VacancySearchPage {
   readonly page: Page;
   readonly jobTitleInput: Locator;
+  readonly locationInput: Locator;
+  readonly distanceSelect: Locator;
+  readonly startDate: Locator;
+  readonly endDate: Locator;
   readonly searchButton: Locator;
   readonly matchCount: Locator;
   readonly vacancyCards: Locator;
@@ -37,10 +52,17 @@ export class VacancySearchPage {
     this.page = page;
     const searchForm = page.getByTestId('desktop-search-layout');
 
-    // No <label>; the placeholder is the accessible name.
+    // No <label>s; the placeholders are the accessible names.
     this.jobTitleInput = searchForm.getByPlaceholder('Main job title', { exact: true });
+    this.locationInput = searchForm.getByPlaceholder('Add work location', { exact: true });
+    // The only native <select> in the form. Not getByRole('combobox'): the
+    // location autocomplete is a combobox too.
+    this.distanceSelect = searchForm.locator('select');
+    // Unset dates show these placeholders; a picked date replaces them.
+    this.startDate = searchForm.getByText('Start', { exact: true });
+    this.endDate = searchForm.getByText('End', { exact: true });
 
-    // Icon-only submit with no accessible name. The "Search vacancies" tab also
+    // Icon-only button with no accessible name. The "Search vacancies" tab also
     // carries a search-icon svg, but it sits outside the desktop layout.
     this.searchButton = searchForm
       .getByRole('button')
@@ -53,23 +75,13 @@ export class VacancySearchPage {
 
     this.emptyState = page.getByText('No vacancies match your criteria', { exact: true });
 
-    // The app has no error state today (VS-13 is a known bug), so this is the
-    // generic wording we'd accept. Not getByRole('alert'): Next.js's route
-    // announcer is an always-present role="alert" holding the page title.
+    // The app shows no error message today and the wording isn't specified, so
+    // this accepts common phrasings (VS-13, suspected issue). Not
+    // getByRole('alert'): Next.js's route announcer is an always-present
+    // role="alert" holding the page title.
     this.errorMessage = page.getByText(
       /something went wrong|please try again|(could not|couldn't|failed to) load|unavailable/i,
     );
-  }
-
-  /** Title, match % and location of a single vacancy card. */
-  cardFields(card: Locator) {
-    return {
-      // Title is the sibling rendered before the match-% ring.
-      title: card.locator('div:has(> div > div > [role="progressbar"]) > div:first-child'),
-      // Match % is only rendered once a job-title search has run.
-      matchPercent: card.getByText(/^\d{1,3}%$/),
-      location: card.locator('div:has(> svg.locationIcon)'),
-    };
   }
 
   /** Opens vacancy search directly, for specs that don't cover navigation. */
@@ -78,16 +90,26 @@ export class VacancySearchPage {
     await expect(this.jobTitleInput).toBeVisible();
   }
 
+  /** Location and dates empty, distance at the default 100km (brief step 3). */
+  async expectDefaultFilters() {
+    await expect(this.locationInput).toHaveValue('');
+    await expect(this.startDate).toBeVisible();
+    await expect(this.endDate).toBeVisible();
+    await expect(this.distanceSelect).toHaveValue('100');
+  }
+
   /**
-   * Fills the title, submits, and waits for the search API response for this
-   * title. The page also calls the endpoint on load (without a title), so the
-   * predicate matches on the request body, not only the URL.
+   * Fills the title, clicks the search icon, and waits for the search API
+   * response for this title. The page also calls the endpoint on load
+   * (without a title), so the predicate matches on the request body.
+   *
+   * Observed: typing alone triggers this request after ~0.6s; the click does
+   * not send a second one.
    */
   async submitSearch(title: string): Promise<Response> {
     await expect(this.jobTitleInput).toBeVisible();
-    await this.jobTitleInput.fill(title);
-
     const responsePromise = this.page.waitForResponse((res) => this.isSearchFor(res, title));
+    await this.jobTitleInput.fill(title);
     await this.searchButton.click();
     return responsePromise;
   }
@@ -99,7 +121,12 @@ export class VacancySearchPage {
     const body = (await response.json()) as SearchResponseBody;
     return {
       totalCount: body.pagination.total_count,
-      results: body.results.map(({ id, score }) => ({ id, score })),
+      results: body.results.map((r) => ({
+        id: r.id,
+        title: r.job_title,
+        score: r.score,
+        country: r.location?.main?.country ?? null,
+      })),
     };
   }
 
@@ -119,18 +146,14 @@ export class VacancySearchPage {
     return payload?.main_job_title?.includes(title) ?? false;
   }
 
-  /** URL keeps type=vacancies and carries the title in some query param. */
+  /** URL keeps type=vacancies and main_job_title[0] holds the searched title. */
   async expectUrlReflectsSearch(title: string) {
     await expect
       .poll(() => {
-        const url = new URL(this.page.url());
-        const values = [...url.searchParams.values()].map((v) => v.toLowerCase());
-        return {
-          type: url.searchParams.get('type'),
-          hasTitle: values.some((v) => v.includes(title.toLowerCase())),
-        };
+        const params = new URL(this.page.url()).searchParams;
+        return { type: params.get('type'), title: params.get('main_job_title[0]') };
       })
-      .toEqual({ type: 'vacancies', hasTitle: true });
+      .toEqual({ type: 'vacancies', title });
   }
 
   /**
@@ -153,7 +176,7 @@ export class VacancySearchPage {
     const percents = this.vacancyCards.getByText(/^\d{1,3}%$/);
     // Pre-search cards have no %, so this waits for the post-search render,
     // then checks every card has one.
-    await expect(percents.first()).toBeVisible();
+    await expect.poll(() => percents.count()).toBeGreaterThan(0);
     await expect(percents).toHaveCount(await this.vacancyCards.count());
     return (await percents.allTextContents()).map((t) => Number(t.replace('%', '')));
   }
@@ -167,30 +190,24 @@ export class VacancySearchPage {
     return percents;
   }
 
-  /** Returns the checked fields so specs can record them in the report. */
-  async expectVacancyCardWithMetadata() {
-    const first = this.vacancyCards.first();
-    await expect(first).toBeVisible();
-    const { title, matchPercent, location } = this.cardFields(first);
+  /**
+   * The top card shows the top API result's title, location and match %.
+   * Deliberately the first card ("the top result"), not any card.
+   */
+  async expectTopCardMatches(result: SearchResult) {
+    const top = result.results[0];
+    expect(top, 'search API returned no results').toBeDefined();
+    expect(top.country, 'top result has no location in the API').toBeTruthy();
 
-    // Match % first: it only appears on post-search cards, so this also waits
-    // out any pre-search cards still on screen.
-    await expect(matchPercent).toBeVisible();
-    await expect
-      .poll(async () => Number((await matchPercent.textContent())?.replace('%', '')))
-      .toBeLessThanOrEqual(100);
+    const card = this.vacancyCards.first();
+    const expectedPercent = `${Math.round(top.score * 100)}%`;
+    // The % only appears on post-search cards, so this also waits out any
+    // pre-search cards still on screen.
+    await expect(card.getByText(expectedPercent, { exact: true })).toBeVisible();
+    await expect(card.getByText(top.title, { exact: true })).toBeVisible();
+    await expect(card.locator('div:has(> svg.locationIcon)')).toHaveText(top.country ?? '');
 
-    await expect(title).toBeVisible();
-    await expect(title).toHaveText(/\S/);
-
-    await expect(location).toBeVisible();
-    await expect(location).toHaveText(/\S/);
-
-    return {
-      title: (await title.innerText()).trim(),
-      location: (await location.innerText()).trim(),
-      matchPercent: (await matchPercent.innerText()).trim(),
-    };
+    return { title: top.title, location: top.country, matchPercent: expectedPercent };
   }
 
   async expectNoResults(result: SearchResult) {
@@ -204,9 +221,10 @@ export class VacancySearchPage {
   }
 
   /**
-   * After a failed search the page must not present anything as if it were a
-   * real answer: no stale cards or count, and no "no vacancies" message (an
-   * outage is not an empty result). The typed title stays so the user can retry.
+   * After a failed search nothing is presented as if it were a real answer:
+   * no stale cards or count, and no "no vacancies" message (an outage is not an
+   * empty result). The typed title stays so the user can retry. This is the
+   * observed behaviour, kept as a regression check.
    */
   async expectNoMisleadingResults(title: string) {
     await expect(this.vacancyCards).toHaveCount(0);

@@ -4,7 +4,8 @@ import { scanA11y } from '../support/a11y';
 
 const known = Object.keys(knownA11yViolations);
 
-test.describe('Accessibility', { tag: ['@VS-14', '@a11y'] }, () => {
+// VS-14: axe with WCAG 2.1 A/AA rules, critical and serious impact only.
+test.describe('Accessibility', { tag: ['@extended', '@VS-14'] }, () => {
   test.beforeEach(async ({ vacancySearchPage }) => {
     await test.step(`Given I have searched for "${searchData.jobTitle}"`, async () => {
       await vacancySearchPage.open();
@@ -28,15 +29,23 @@ test.describe('Accessibility', { tag: ['@VS-14', '@a11y'] }, () => {
     });
   });
 
-  test('search form has no critical or serious violations', async ({ page }, testInfo) => {
-    test.fail(true, `Known bugs: ${known.slice(0, 3).join(', ')} in the search form`);
-    note('known bug', 'Expected to fail until the search form issues are fixed');
+  test(
+    'search form has no critical or serious violations',
+    { tag: '@suspected' },
+    async ({ page }, testInfo) => {
+      const violations = await test.step('When I run axe on the search form only', () =>
+        scanA11y(page, testInfo, '[data-testid="desktop-search-layout"]'));
 
-    const violations = await test.step('When I run axe on the search form only', () =>
-      scanA11y(page, testInfo, '[data-testid="desktop-search-layout"]'));
+      // WCAG 2.1 failures reported by axe today: button-name (icon-only search
+      // button), select-name (distance) and image-alt (form icons). Marked as
+      // an expected failure only after the scan ran. When this turns red, the
+      // form passes: remove test.fail().
+      test.fail(true, `WCAG failures in the search form: ${known.slice(0, 3).join(', ')}`);
+      note('WCAG failures', 'Expected to fail while the search form has axe violations');
 
-    await test.step('Then there are no violations', () => {
-      expect(violations).toEqual([]);
-    });
-  });
+      await test.step('Then there are no violations', () => {
+        expect(violations).toEqual([]);
+      });
+    },
+  );
 });

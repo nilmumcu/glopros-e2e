@@ -2,6 +2,8 @@ import { test as base, expect } from '@playwright/test';
 import { HomePage } from '../pages/HomePage';
 import { VacancySearchPage } from '../pages/VacancySearchPage';
 
+const EMAIL_LIKE = /[\w*.+-]+@[\w-]+\.[a-z]{2,}/i;
+
 type Fixtures = {
   homePage: HomePage;
   vacancySearchPage: VacancySearchPage;
@@ -29,8 +31,10 @@ export const test = base.extend<Fixtures>({
   finalScreenshot: [
     async ({ page }, use, testInfo) => {
       await use();
+      // The report is published publicly. Some vacancies on the shared env
+      // show (masked) email addresses, so email-like text is blacked out.
       await testInfo.attach('final state', {
-        body: await page.screenshot({ fullPage: true }),
+        body: await page.screenshot({ fullPage: true, mask: [page.getByText(EMAIL_LIKE)] }),
         contentType: 'image/png',
       });
     },

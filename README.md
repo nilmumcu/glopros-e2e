@@ -1,221 +1,95 @@
 # GloPros vacancy search – E2E (Playwright + TypeScript)
 
-End-to-end tests for the vacancy search journey on the GloPros review environment.
-Read-only: no login, no accounts, no applications submitted.
+[![E2E](https://github.com/nilmumcu/glopros-e2e/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/nilmumcu/glopros-e2e/actions/workflows/e2e.yml?query=branch%3Amain)
 
-## Prerequisites
+**Start here**
 
-- **Node.js 20+** (`.nvmrc` pins 20; `engines` enforces `>=20`). Playwright does not run on Node 16/18.
-  With nvm: `nvm use`.
-- Network access to `https://review-chore-qa-i-lgtytk.dev.glopros.com` (or your own `BASE_URL`).
-
-## Install
-
-```bash
-npm ci
-npx playwright install chromium
-```
+1. **What it tests:** the vacancy search happy path on the GloPros review app (homepage → Vacancy search → "Software Engineer" → results), read-only.
+2. **Run it:** `nvm use && npm ci && npx playwright install chromium && npm test`
+3. **Core vs extras:** untagged tests are the required core; tests tagged `@extended` (live-data checks, suspected issues) run in a separate, non-blocking CI job.
+4. **Results:** `npm run report` locally, the [live report](https://nilmumcu.github.io/glopros-e2e/), or the [latest green run](https://github.com/nilmumcu/glopros-e2e/actions/workflows/e2e.yml?query=branch%3Amain+is%3Asuccess).
+5. **Scenarios:** `features/vacancy-search.feature` (Gherkin); each `@VS-xx` tag matches a test.
 
 ## Run
 
-| Command                                       | What it does                                       |
-| --------------------------------------------- | -------------------------------------------------- |
-| `npm test`                                    | All tests, headless                                |
-| `npm run test:headed`                         | Watch the browser                                  |
-| `npm run test:ui`                             | Playwright UI mode                                 |
-| `npm run test:evidence`                       | Record a trace for every test, passed ones too     |
-| `npx playwright test --grep @known-bug`       | Only the tests that track known app bugs           |
-| `npx playwright test --grep @smoke`           | Smoke subset (or `--grep @VS-02` for one scenario) |
-| `npx playwright test --repeat-each=20`        | Flakiness check                                    |
-| `CI=true npx playwright test`                 | Run with CI settings (retries, 1 worker)           |
-| `npm run report`                              | Open the last HTML report                          |
-| `npm run typecheck` / `lint` / `format:check` | Static checks (all run in CI)                      |
+Requires Node 20+ (`.nvmrc`).
+
+| Command                                       | What it does                                |
+| --------------------------------------------- | ------------------------------------------- |
+| `npm test`                                    | All tests, headless                         |
+| `npm run test:headed` / `npm run test:ui`     | Watch the browser / step through in UI mode |
+| `npx playwright test --grep-invert @extended` | Core only (what decides a green CI run)     |
+| `npx playwright test --grep @extended`        | Extended only                               |
+| `npm run report`                              | Open the last HTML report                   |
+| `npm run typecheck` / `lint` / `format:check` | Static checks                               |
 
 Target another environment with `BASE_URL=https://... npm test`.
 
 ## Structure
 
 ```
-features/   Gherkin scenarios; @VS-xx IDs link each one to its test
+features/   Gherkin scenarios (automated + manual)
 tests/      Specs; each test.step mirrors a Gherkin step
-pages/      Page objects; all selectors and assertions live here
-fixtures/   test.extend: provides homePage / vacancySearchPage, cookie-banner handler
-data/       Test data (search terms) and the accessibility baseline
-support/    Helpers (axe accessibility scan)
-scripts/    ci-summary.mjs: results table for the GitHub Actions run page
-.github/    CI pipeline (see "CI pipeline")
+pages/      Page objects; all selectors and assertions
+fixtures/   Injects page objects, handles the cookie banner, attaches a final screenshot
+data/       Search terms and the accessibility baseline
+support/    axe accessibility scan helper
 ```
 
-Specs import `test`/`expect` from `fixtures/`, not from `@playwright/test`, and get
-page objects injected:
+## Coverage
 
-```ts
-test('...', async ({ vacancySearchPage }) => { ... });
-```
+| ID              | Scenario                                                                                              | Tier                |
+| --------------- | ----------------------------------------------------------------------------------------------------- | ------------------- |
+| VS-01           | Search by main job title (the brief's happy path)                                                     | Core                |
+| VS-13           | API failure shows no misleading results (stubbed)                                                     | Core                |
+| VS-02           | Title that matches nothing → empty state                                                              | Extended            |
+| VS-11           | Results ordered by match %                                                                            | Extended            |
+| VS-12           | Case/whitespace variants give the same results                                                        | Extended            |
+| VS-13           | API failure shows an error message                                                                    | Extended, suspected |
+| VS-14           | Accessibility (axe, WCAG 2.1 A/AA)                                                                    | Extended            |
+| VS-03–10, VS-15 | Empty title, special characters, long title, Enter key, distance, deep link, back, mobile, start date | Manual              |
 
-## Viewing results
+VS-01 checks everything step 5 of the brief asks for: the default filters (100km, no location or dates), `type=vacancies` and `main_job_title[0]` in the URL, a match count equal to the search API total, and the top card's title, location and match % against the top API result. No count or ranking is hard-coded.
 
-`npm run report` opens the HTML report. Click **Passed** to filter. For every test,
-passed or failed, the report shows:
+## Findings
 
-- **Steps** named after the Gherkin steps.
-- **Annotations** with what was actually checked, for example
-  `search: "Software Engineer": API total 510`,
-  `first card: 9 · Netherlands · 96%`, and the match % order.
-- **A full-page screenshot of the final state** (fixture `finalScreenshot`).
-- For accessibility tests, the full **axe results** as a JSON attachment.
+Expected behaviour for these isn't specified, so they're labelled observed or suspected, not bugs.
 
-Traces are only recorded on retry by default, to keep runs fast. Use
-`npm run test:evidence` for a run where every test gets a trace (timeline, DOM
-snapshots, network), or `npm run test:ui` to step through tests live.
+| Finding                                                                                                        | Status                         | Where                |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------ | -------------------- |
+| "Software&nbsp;&nbsp;&nbsp;Engineer" (3 inner spaces) returns 511 matches with lower scores; 2 spaces are fine | Suspected                      | VS-12, `test.fail()` |
+| When the search API fails, the results area goes blank with no message                                         | Suspected                      | VS-13, `test.fail()` |
+| Search form: icon-only button without a name, unlabeled distance select, icons without alt text                | WCAG failure (axe)             | VS-14, `test.fail()` |
+| Typing triggers the search (~0.6s debounce); the search icon and Enter send no extra request                   | Observed                       | VS-01, VS-06         |
+| An empty title leaves the URL unchanged and sends no request                                                   | Observed                       | VS-03                |
+| Start date is stored in the URL as UTC: 15 Oct in Amsterdam becomes `2026-10-14T22:00:00.000Z`                 | Observed, off-by-one suspected | VS-15                |
+| Search is semantic: "zzzqqqxxx123" returns 336 matches                                                         | Observed                       | VS-02                |
 
-## CI pipeline
+`test.fail()` tests assert the correct behaviour. `test.fail()` is called only after setup has passed, so a page that fails to load can't hide as an "expected failure". When the app changes, the test turns red, and the marker should be removed.
 
-`.github/workflows/e2e.yml` runs on every push to `main`, on pull requests,
-manually (**Run workflow**), and **nightly at 03:00 UTC**.
+## Stability and trade-offs
 
-```
-quality ──► smoke ──► e2e ──► publish-report
-typecheck   @smoke    full     HTML report → GitHub Pages
-lint        only      suite    (main only, also when tests fail)
-format
-```
+- **Waits:** the test waits on the search API response (matched by request body), never on time. Web-first assertions only; no `waitForTimeout` or `force`, enforced by ESLint.
+- **UI is checked against the API:** the count and the top card are compared with the API response, which also rules out reading stale pre-search results.
+- **Locators:** scoped to the desktop form (the app renders a hidden mobile copy). Card internals have no roles or test ids; checking against the API avoids structural CSS. A `data-testid` from the app team would help most.
+- **Core vs extended:** extended tests depend on shared data or track suspected issues. They stay visible but can't turn a run red.
+- **VS-01 checks the top card strictly:** a top result without a location would fail it. Accepting any card would hide regressions on the top result.
+- **Privacy:** the report is public. Email-like text is masked in screenshots and CI records no video. Traces (only on retry) can't be masked.
 
-| Stage            | Why it's separate                                                                       |
-| ---------------- | --------------------------------------------------------------------------------------- |
-| `quality`        | Fails in ~30s without installing a browser                                              |
-| `smoke`          | If the env is down or the happy path broke, stop before spending time on the full suite |
-| `e2e`            | Full suite with CI settings (2 retries, 1 worker); uploads the report and raw results   |
-| `publish-report` | Puts the HTML report at a link, so nobody has to download and unzip an artifact         |
+## CI
 
-- **Run page summary:** each test job writes a results table to the run page with
-  the pass rate, a split into passed / known bugs / flaky / failed, and each test's
-  notes (made by `scripts/ci-summary.mjs` from the JSON reporter).
-- **Live report:** https://nilmumcu.github.io/glopros-e2e/ (latest `main` or nightly run).
-- **Nightly run:** the review env is shared and its data changes. A nightly run catches
-  breakage, such as the VS-02 zero-result term gaining matches, on days nobody pushes.
-- **Concurrency:** a newer push cancels the older run on the same branch.
+`quality → core (required) → extended (non-blocking) → publish-report` on every push to `main`, on pull requests, and manually. The publish step merges both tiers into one HTML report on GitHub Pages; a Pages problem can't fail the run. CI uses 2 retries and 1 worker.
 
-One-time setup for the live report: **Settings → Pages → Build and deployment →
-Source: GitHub Actions**.
+## TODO
 
-## Coverage and traceability
+- Nightly scheduled run, to catch data or app changes on days nobody pushes.
+- Ask the app team for `data-testid`s on card fields and an accessible name for the search button.
 
-| ID    | Scenario (`features/vacancy-search.feature`) | Status                  | Test                                                                                        |
-| ----- | -------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------- |
-| VS-01 | Search by main job title (happy path)        | Automated               | `vacancy-search.spec.ts` › `user finds vacancies by main job title` `@smoke`                |
-| VS-02 | Search with a title that matches nothing     | Automated               | `vacancy-search.spec.ts` › `search with a title that matches nothing shows the empty state` |
-| VS-11 | Results ordered by match %                   | Automated               | `vacancy-search.spec.ts` › `results are ordered by match %, highest first`                  |
-| VS-12 | Case/whitespace variants give same results   | Automated (+ known bug) | `vacancy-search.spec.ts` › `equivalent job titles return the same results` (4 tests)        |
-| VS-13 | Search API failure (stubbed HTTP 500)        | Automated (+ known bug) | `search-resilience.spec.ts` (2 tests)                                                       |
-| VS-14 | Accessibility (axe, WCAG 2.1 A/AA)           | Automated (+ known bug) | `accessibility.spec.ts` (2 tests)                                                           |
-| VS-03 | Search with an empty job title               | Manual                  | –                                                                                           |
-| VS-04 | Special characters in title                  | Manual                  | –                                                                                           |
-| VS-05 | Very long job title                          | Manual                  | –                                                                                           |
-| VS-06 | Submit with the Enter key                    | Manual                  | –                                                                                           |
-| VS-07 | Change the distance filter                   | Manual                  | –                                                                                           |
-| VS-08 | Deep link to a search URL                    | Manual                  | –                                                                                           |
-| VS-09 | Browser back keeps search state              | Manual                  | –                                                                                           |
-| VS-10 | Mobile viewport                              | Manual                  | –                                                                                           |
+## AI usage
 
-Run a single scenario by ID: `npx playwright test --grep @VS-01`.
+I built this with Claude Code (an AI coding agent) doing most of the hands-on work, which the brief allows. How the work was split:
 
-### Known bugs (tracked as expected failures)
-
-These tests assert the **correct** behaviour and are marked `test.fail()`. They
-show as passed ("expected to fail") while the bug exists. Once the app is fixed
-they turn red, which tells you to remove the `test.fail()` line. The expectation
-itself is never weakened.
-
-| ID    | Bug                                                                                                            |
-| ----- | -------------------------------------------------------------------------------------------------------------- |
-| VS-12 | "Software Engineer" (3 inner spaces) returns 511 matches with lower scores (top 86% vs 96%); 2 spaces are fine |
-| VS-13 | When the search API fails, the results area goes blank with no error message                                   |
-| VS-14 | Search form: icon-only search button has no accessible name, distance `<select>` has no label, icons lack alt  |
-
-The results-page accessibility test uses a **baseline** (`knownA11yViolations` in
-`data/testData.ts`). It fails only on violations that are not in that list, so the
-page can't get worse while the known issues wait for a fix.
-
-### Other observations (not automated)
-
-- The top result for "Software Engineer" is a vacancy titled "9" (96% match). This
-  is a possible relevance problem, or test data ranking above real vacancies.
-- Search is very loose: "zzzqqqxxx123" returns 336 matches, and several unrelated
-  terms return exactly 500 (possibly a cap on the count).
-- One card lists masked email addresses as skills. That's a data-quality issue and
-  possibly personal data shown publicly.
-
-## Stability approach
-
-- **Wait on the network, not on time.** `searchByJobTitle` waits for the
-  `POST /v1/search/search_job_description/` response whose body contains the
-  searched title. The page also calls this endpoint on load, so matching the URL alone
-  would pick up the wrong response.
-- **Check the UI against the API.** The match count must equal the API's `total_count`.
-  This also catches a count left on screen from before the search (the page shows
-  "864 matches" before any search).
-- **Web-first assertions only** (`toBeVisible`, `toHaveText`, `toHaveCount`, `expect.poll`).
-  There are no `waitForTimeout` calls and no `force: true`. ESLint enforces both
-  (`playwright/no-wait-for-timeout`, `playwright/no-force-option`), along with
-  `no-floating-promises` to catch a missing `await`.
-- **Order matters on re-render.** The card check looks for the match % first. It
-  only appears on post-search cards, so it waits out stale pre-search cards.
-- **Cookie banner.** The app loads Cookiebot. Its dialog doesn't currently show on
-  the review domain, so the fixture registers `page.addLocatorHandler` for it. The
-  handler declines non-essential cookies only if the dialog appears, without any
-  conditional waits.
-- **Strict, scoped locators.** The app renders a hidden mobile copy of the search form,
-  so form locators are scoped to `data-testid="desktop-search-layout"`. There are
-  no `.first()` calls to hide ambiguity.
-- **No hard-coded result counts or ranking**, since data on a shared review env changes.
-- **CI:** 2 retries, 1 worker, trace on first retry, screenshot/video on failure.
-  Retries never hide problems: a test that passes only on retry is reported as
-  **flaky** in the run summary and the report.
-
-## Trade-offs
-
-- **Card fields use the page structure.** Card internals have no roles, test ids
-  or stable class names, only hashed emotion classes like `css-ag4k76`. The title is
-  found as the element before the match-% ring, and the location by `svg.locationIcon`.
-  A `data-testid` on these from the app team would make them solid.
-- **The zero-results term depends on data.** Search is semantic, so random strings
-  (`zzzqqqxxx123`, `qxjzv`) return hundreds of fuzzy matches. VS-02 uses
-  "Underwater basket weaver", which is verified to return 0. If the shared data ever
-  matches it, VS-02 fails with a message pointing to `data/testData.ts` rather than
-  passing silently. Mocking the API would remove the dependency but would no longer
-  test the real search.
-- **The first card is checked strictly.** VS-01 asserts title, location and match %
-  on the first card. Some vacancies on the env have no location ("Test 123"), so if
-  one ranks first for "Software Engineer", VS-01 fails. Accepting any card would hide
-  regressions on the top result.
-- **VS-13 stubs the API.** `page.route` is the only safe way to test failure handling on
-  a shared environment. It tests the UI's reaction, not the backend. The error message
-  wording isn't specified, so the locator accepts common phrasings.
-- **Accessibility uses a baseline, not zero violations.** Requiring zero violations
-  would fail permanently on existing issues and get ignored. The baseline catches new
-  issues today, and the separate known-bug test keeps the existing ones visible.
-- **Chromium desktop only.** One project keeps runs fast on a shared env. Mobile is
-  covered as a manual scenario (VS-10).
-- **Gherkin is documentation, not executable.** The steps are mirrored in `test.step`
-  with no Cucumber layer. That's less tooling, at the cost of keeping both in sync by hand
-  (the `@VS-xx` tags make drift easy to spot).
-
-## Troubleshooting
-
-| Symptom                                         | Fix                                                                                    |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `Playwright requires Node.js 20 or higher`      | `nvm install && nvm use` (reads `.nvmrc`)                                              |
-| `Executable doesn't exist ... chromium`         | `npx playwright install chromium`                                                      |
-| `bad CPU type in executable` (Apple Silicon)    | Your Node or Homebrew is x86_64-only. Install an arm64 Node 20 (nvm or nodejs.org)     |
-| VS-02: `search API returned matches`            | Env data changed; pick a new zero-result title in `data/testData.ts`                   |
-| Locator timeouts after an app release           | `npm run codegen`, inspect the markup, update `pages/` (the only place with selectors) |
-| Flaky in CI only                                | Open the live report (or the `playwright-report` artifact) and the retried run's trace |
-| `publish-report` fails: "Get Pages site failed" | Enable Pages once: Settings → Pages → Source: GitHub Actions                           |
-
-## AI usage note
-
-- **Used AI for:** scaffolding, drafting page objects, Gherkin edge cases, CI workflow.
-- **Kept:** page-object structure, web-first assertions, a URL check that doesn't assume the query param name.
-- **Changed/verified by me:** selectors against the real DOM, card-metadata assertions, retry/worker settings, pruning of scenarios.
-- **Why:** AI is fast at boilerplate; selectors, assertions and trade-offs must be verified against the real app.
+- **Claude:** inspected the live app's DOM and network calls, wrote the page objects, tests, CI workflow and docs, and ran the repeat runs.
+- **Me:** set the scope and rules (follow the brief, no hard-coded counts, never loosen an assertion to get green, call unspecified behaviour "observed" or "suspected"), asked for the stability checks (20× repeats, CI-mode runs), reviewed the results and diffs, and decided what to keep and what to cut.
+- **What I changed after review:** the first version grew past the brief, so I had it split into a small required core and a non-blocking extended tier, dropped a nightly job and a custom summary script, and shortened this README.
+- **Why:** AI is fast at investigation and boilerplate. Deciding the scope, what counts as an issue, and which trade-offs to accept stayed with me.

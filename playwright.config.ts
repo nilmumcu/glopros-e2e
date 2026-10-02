@@ -13,16 +13,16 @@ export default defineConfig({
   reporter: process.env.CI
     ? [
         ['github'],
-        ['html', { open: 'never' }],
-        // Read by scripts/ci-summary.mjs for the Actions job summary.
-        ['json', { outputFile: 'reports/results.json' }],
+        // Each CI job writes a blob; the report job merges them into one HTML report.
+        ['blob', { fileName: `report-${process.env.TEST_TIER ?? 'all'}.zip` }],
       ]
     : [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    // Videos can't be masked and the CI report is public; traces cover CI.
+    video: process.env.CI ? 'off' : 'retain-on-failure',
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
   },

@@ -1,9 +1,9 @@
 import { test, expect, note } from '../fixtures';
 import { searchData } from '../data/testData';
 
-// VS-13: the search API is stubbed to fail with page.route. Nothing on the
-// real environment is affected.
-test.describe('Search API failure', { tag: ['@VS-13', '@resilience'] }, () => {
+// VS-13: the search API is stubbed to fail with page.route, so these tests
+// don't depend on live data. Nothing on the real environment is affected.
+test.describe('Search API failure', { tag: ['@VS-13'] }, () => {
   test.beforeEach(async ({ vacancySearchPage }) => {
     await test.step('Given I am on vacancy search and the search API returns HTTP 500', async () => {
       await vacancySearchPage.open();
@@ -28,15 +28,27 @@ test.describe('Search API failure', { tag: ['@VS-13', '@resilience'] }, () => {
     });
   });
 
-  test('user is told the search failed', async ({ vacancySearchPage }) => {
-    test.fail(true, 'Known bug: on a 500 the results area goes blank with no message');
-    note('known bug', 'Expected to fail until the app shows an error state');
+  test(
+    'user is told the search failed',
+    { tag: ['@extended', '@suspected'] },
+    async ({ vacancySearchPage }) => {
+      const response = await test.step(`When I search for "${searchData.jobTitle}"`, () =>
+        vacancySearchPage.submitSearch(searchData.jobTitle));
 
-    await test.step(`When I search for "${searchData.jobTitle}"`, () =>
-      vacancySearchPage.submitSearch(searchData.jobTitle));
+      await test.step('Then the request really failed (the stub was hit)', () => {
+        expect(response.status()).toBe(500);
+      });
 
-    await test.step('Then an error message is shown', async () => {
-      await vacancySearchPage.expectErrorMessage();
-    });
-  });
+      // Suspected issue: the results area goes blank with no message. The
+      // expected wording isn't specified, so the locator accepts common
+      // phrasings. Marked as an expected failure only after the setup above
+      // passed. When this turns red, the app shows a message: remove test.fail().
+      test.fail(true, 'Suspected issue: no error message after a failed search');
+      note('suspected issue', 'Expected to fail while no error message is shown');
+
+      await test.step('Then an error message is shown', async () => {
+        await vacancySearchPage.expectErrorMessage();
+      });
+    },
+  );
 });
